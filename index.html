@@ -374,17 +374,24 @@ function cacheFmt(k){
 
 function getRegion(){return FLUVIUS_REGIONS[S.region]||FLUVIUS_REGIONS["Fluvius Zenne-Dijle"];}
 function calcAllinFromFrank(p){
-  // Frank fields are in EUR/kWh, convert to ct/kWh
+  // Use Frank API marketPrice as BELPEX price, apply tariefkaart formula
+  // marketPrice is in EUR/kWh → convert to ct/kWh
   const r=getRegion();
-  const frankSub=(p.marketPrice+p.marketPriceTax+p.sourcingMarkupPrice+p.energyTaxPrice)*100;
-  return frankSub + r.net + (r.data/3500*100);
+  const belpexCt=p.marketPrice*100;
+  // Frank tariefformule: (0.1068 × BELPEX_ct + 1.500) × 1.06
+  const energyCt=(0.1068*belpexCt+1.500)*1.06;
+  // Vaste componenten tariefkaart
+  const gsc=1.166, wkk=0.371, acc=5.0328, bij=0.2042;
+  // Nettarief + databeheer (€18.92/jaar ÷ 365 ÷ 24 × 100 → ct/kWh via jaarlijks gemiddeld)
+  const dataCtKwh=r.data/8760/0.35; // approx 0.006 ct/kWh — use fixed
+  return energyCt+gsc+wkk+acc+bij+r.net+0.052;
 }
 // Fallback calculation from raw MWh price (EnergyZero)
 function calcAllinFromMwh(mwh){
   const r=getRegion();
   const ct=mwh/10;
   const energy=(0.1068*ct+1.500)*1.06;
-  return energy+1.166+0.371+5.0328+0.2042+r.net+(r.data/3500*100);
+  return energy+1.166+0.371+5.0328+0.2042+r.net+0.052;
 }
 function priceInfo(ct){
   if(ct<0)return{color:'#0A5BA8',cls:'blue',label:'Negatief'};
@@ -614,22 +621,20 @@ function renderPriceUI(){
 
 function renderFormulaBox(p){
   const r=getRegion();
+  const belpexCt=p.marketPrice!=null?p.marketPrice*100:null;
+  const energyCt=belpexCt!=null?(0.1068*belpexCt+1.500)*1.06:null;
   let html='';
-  if(p.source==='frank'&&p.frankSubtotal!=null){
-    const mk=(p.marketPrice*100).toFixed(3);
-    const tax=(p.marketPriceTax*100).toFixed(3);
-    const mu=(p.sourcingMarkupPrice*100).toFixed(3);
-    const et=(p.energyTaxPrice*100).toFixed(3);
-    const fs=p.frankSubtotal.toFixed(3);
-    html+=`Marktprijs (incl. btw): <b>${mk}</b> ct<br>`;
-    html+=`Energiebelasting: <b>${et}</b> ct<br>`;
-    html+=`Frank marge: <b>${mu}</b> ct<br>`;
-    html+=`<span style="font-size:10px;color:#8e8e93">Frank subtotaal: ${fs} ct/kWh</span><br>`;
+  if(belpexCt!=null){
+    html+=`BELPEX marktprijs: <b>${belpexCt.toFixed(3)}</b> ct/kWh<br>`;
+    html+=`Energiekost Frank: (<b>0,1068</b> × ${belpexCt.toFixed(2)} + <b>1,500</b>) × <b>1,06</b> = <b>${energyCt.toFixed(3)}</b> ct<br>`;
   } else {
-    html+=`Energiekost (schatting): <b>${(p.allin-r.net-(r.data/3500*100)-1.166-0.371-5.0328-0.2042).toFixed(3)}</b> ct<br>`;
+    html+=`Energiekost (schatting): <b>${(p.allin-r.net-0.052-1.166-0.371-5.0328-0.2042).toFixed(3)}</b> ct<br>`;
   }
+  html+=`GSC + WKK: <b>1,537</b> ct<br>`;
+  html+=`Bijzondere accijns: <b>5,033</b> ct<br>`;
+  html+=`Bijdrage op energie: <b>0,204</b> ct<br>`;
   html+=`Nettarief ${r.key}: <b>${r.net.toFixed(3)}</b> ct<br>`;
-  html+=`Databeheer: <b>${(r.data/3500*100).toFixed(3)}</b> ct<br>`;
+  html+=`Databeheer: <b>0,052</b> ct<br>`;
   html+=`<div class="formula-divider"></div>`;
   html+=`<span class="formula-total">All-in totaal: <b>${p.allin.toFixed(2)}</b> ct/kWh</span>`;
   document.getElementById('formula-box').innerHTML=html;
