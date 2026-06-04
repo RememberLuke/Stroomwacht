@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stroomwacht Debug</title>
+<style>
+body{font-family:-apple-system,sans-serif;padding:14px;background:#f5f5f7;font-size:14px}
+input{width:100%;padding:10px;margin:4px 0 10px;border:0.5px solid #c7c7cc;border-radius:8px;font-size:13px;background:#fff}
+button{width:100%;padding:12px;background:#3a7d0a;color:#fff;border:none;border-radius:10px;margin-bottom:10px;font-size:14px;font-weight:500}
+pre{background:#fff;padding:12px;border-radius:8px;overflow-x:auto;font-size:11px;border:0.5px solid #e0e0e0;white-space:pre-wrap;word-break:break-all}
+h3{margin-bottom:12px}
+.status{padding:8px 12px;border-radius:8px;margin-bottom:8px;font-size:13px}
+.ok{background:#EAF3DE;color:#3B6D11}
+.err{background:#FCEBEB;color:#A32D2D}
+.info{font-size:12px;color:#6e6e73;margin-bottom:8px}
+</style>
+</head>
+<body>
+<h3>🔍 Stroomwacht API Debug</h3>
+<p class="info">Vul je SolarEdge gegevens in om de ruwe API response te zien.</p>
+<input type="password" id="key" placeholder="SolarEdge API Key">
+<input type="number" id="site" placeholder="Site ID">
+<button onclick="testFlow()">Test currentPowerFlow</button>
+<button onclick="testOverview()" style="background:#BA7517">Test Site Overview</button>
+<div id="out"></div>
+
+<script>
+const key=()=>document.getElementById('key').value.trim();
+const site=()=>document.getElementById('site').value.trim();
+
+async function testFlow(){
+  document.getElementById('out').innerHTML='<div class="status info">⏳ Ophalen...</div>';
+  try{
+    const r=await fetch(`https://monitoringapi.solaredge.com/site/${site()}/currentPowerFlow?api_key=${key()}`);
+    const txt=await r.text();
+    const json=JSON.parse(txt);
+    const flow=json.siteCurrentPowerFlow;
+    
+    let analysis='';
+    if(flow){
+      const unit=flow.unit||'?';
+      const load=flow.LOAD?.currentPower??flow.Load?.currentPower??'niet gevonden';
+      const pv=flow.PV?.currentPower??'niet gevonden';
+      const grid=flow.GRID?.currentPower??flow.Grid?.currentPower??'niet gevonden';
+      const bat=flow.STORAGE?.currentPower??flow.Storage?.currentPower??'niet gevonden';
+      const soc=flow.STORAGE?.chargeLevel??flow.Storage?.chargeLevel??'niet gevonden';
+      const conns=JSON.stringify(flow.connections||[]);
+      
+      analysis=`\n=== ANALYSE ===\nUnit: ${unit}\nLOAD.currentPower: ${load} ${unit}\nPV.currentPower: ${pv} ${unit}\nGRID.currentPower: ${grid} ${unit}\nSTORAGE.currentPower: ${bat} ${unit}\nSTORAGE.chargeLevel: ${soc}%\nConnections: ${conns}\n\n`;
+      
+      if(unit==='W'){
+        analysis+=`Als W → kW: LOAD=${typeof load==='number'?(load/1000).toFixed(3):load} kW\n`;
+        analysis+=`Als W → kW: PV=${typeof pv==='number'?(pv/1000).toFixed(3):pv} kW\n`;
+      } else if(unit==='kW'){
+        analysis+=`Waarden zijn al in kW — GEEN /1000 nodig!\n`;
+        analysis+=`LOAD=${load} kW, PV=${pv} kW\n`;
+      }
+      
+      // Check for EV
+      const ev=flow.EV_CHARGER||flow.EvCharger||flow.EV||null;
+      if(ev)analysis+=`\nEV_CHARGER gevonden: ${JSON.stringify(ev)}\n`;
+      else analysis+=`\nGeen EV_CHARGER in response\n`;
+      
+      // List all top-level keys
+      analysis+=`\nAlle keys in siteCurrentPowerFlow: ${Object.keys(flow).join(', ')}\n`;
+    }
+    
+    document.getElementById('out').innerHTML=`
+      <div class="status ok">✓ HTTP ${r.status} — Response ontvangen</div>
+      <pre>${analysis}</pre>
+      <p style="font-size:12px;color:#6e6e73;margin:8px 0">Volledige JSON response:</p>
+      <pre>${JSON.stringify(json,null,2)}</pre>`;
+  }catch(e){
+    document.getElementById('out').innerHTML=`<div class="status err">✗ Fout: ${e.message}</div>`;
+  }
+}
+
+async function testOverview(){
+  document.getElementById('out').innerHTML='<div class="status info">⏳ Ophalen...</div>';
+  try{
+    const r=await fetch(`https://monitoringapi.solaredge.com/site/${site()}/overview?api_key=${key()}`);
+    const txt=await r.text();
+    document.getElementById('out').innerHTML=`<div class="status ok">✓ HTTP ${r.status}</div><pre>${JSON.stringify(JSON.parse(txt),null,2)}</pre>`;
+  }catch(e){
+    document.getElementById('out').innerHTML=`<div class="status err">✗ Fout: ${e.message}</div>`;
+  }
+}
+</script>
+</body>
+</html>
